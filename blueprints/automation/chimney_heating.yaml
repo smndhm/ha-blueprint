@@ -48,18 +48,49 @@ blueprint:
           integration: mobile_app
           multiple: true
     temp_confort:
-      name: Température de confort / Comfort temperature
+      name: Température de confort (jour) / Comfort temperature (day)
       description: >
-        Température intérieure minimale souhaitée. L'automation anticipe
+        Température intérieure minimale souhaitée en journée. L'automation anticipe
         pour ne pas passer en dessous.
 
-        Minimum desired indoor temperature. The automation anticipates
+        Minimum desired indoor temperature during the day. The automation anticipates
         to avoid dropping below this value.
       default: 19
       selector:
         number:
           min: 10
           max: 30
+    temp_confort_nuit:
+      name: Température de confort (nuit) / Night comfort temperature
+      description: >
+        Température acceptée la nuit, entre heure_debut_nuit et heure_fin_nuit.
+        Mettre la même valeur que temp_confort pour désactiver.
+
+        Acceptable temperature at night, between night_start and night_end.
+        Set to the same value as temp_confort to disable.
+      default: 17
+      selector:
+        number:
+          min: 10
+          max: 30
+    heure_debut_nuit:
+      name: Début de nuit / Night start
+      description: >
+        Heure de début de la période nuit (temp_confort_nuit utilisée à partir de là).
+
+        Start time of the night period (temp_confort_nuit applies from here).
+      default: "00:00:00"
+      selector:
+        time: {}
+    heure_fin_nuit:
+      name: Fin de nuit / Night end
+      description: >
+        Heure de fin de la période nuit (retour à temp_confort après cette heure).
+
+        End time of the night period (reverts to temp_confort after this time).
+      default: "06:30:00"
+      selector:
+        time: {}
     temps_chauffe:
       name: Temps de chauffe / Warm-up time (minutes)
       description: >
@@ -118,6 +149,9 @@ trigger_variables:
   capteurs_exterieurs: !input capteurs_exterieurs
   capteur_derivee: !input capteur_derivee
   temp_confort: !input temp_confort
+  temp_confort_nuit: !input temp_confort_nuit
+  heure_debut_nuit: !input heure_debut_nuit
+  heure_fin_nuit: !input heure_fin_nuit
   temps_chauffe: !input temps_chauffe
   seuil_ext: !input seuil_ext
 
@@ -128,11 +162,18 @@ trigger:
       {% set temps_ext = expand(capteurs_exterieurs) | map(attribute='state') | map('float', none) | reject('none') | list %}
       {% set rate = states(capteur_derivee) | float(none) %}
       {% set warmup_h = temps_chauffe / 60 %}
+      {% set t_now = now().strftime('%H:%M:%S') %}
+      {% if heure_debut_nuit > heure_fin_nuit %}
+        {% set is_nuit = t_now >= heure_debut_nuit or t_now < heure_fin_nuit %}
+      {% else %}
+        {% set is_nuit = t_now >= heure_debut_nuit and t_now < heure_fin_nuit %}
+      {% endif %}
+      {% set confort = (temp_confort_nuit | float) if is_nuit else (temp_confort | float) %}
       {% if temps_int | length > 0 and temps_ext | length > 0 and rate is not none %}
         {% set temp_min_int = temps_int | min %}
         {% set temp_max_ext = temps_ext | max %}
-        {% if temp_max_ext < seuil_ext and temp_min_int > temp_confort and rate < 0 %}
-          {{ (temp_min_int - temp_confort) / (-rate) <= warmup_h }}
+        {% if temp_max_ext < seuil_ext and temp_min_int > confort and rate < 0 %}
+          {{ (temp_min_int - confort) / (-rate) <= warmup_h }}
         {% else %}
           false
         {% endif %}
@@ -153,6 +194,9 @@ action:
       langue: !input langue
       devices_raw: !input devices_notification
       temp_cible: !input temp_confort
+      temp_cible_nuit: !input temp_confort_nuit
+      heure_debut_nuit: !input heure_debut_nuit
+      heure_fin_nuit: !input heure_fin_nuit
       chauffe_min: !input temps_chauffe
       seuil: !input seuil_ext
       rappel_min: !input delai_rappel
@@ -168,11 +212,20 @@ action:
         {{ vals | max | round(1) if vals | length > 0 else '?' }}
       rate: "{{ states(capteur_der) | float(0) | round(2) }}"
   - variables:
+      temp_cible_eff: >
+        {% set t = now().strftime('%H:%M:%S') %}
+        {% if heure_debut_nuit > heure_fin_nuit %}
+          {% set is_nuit = t >= heure_debut_nuit or t < heure_fin_nuit %}
+        {% else %}
+          {% set is_nuit = t >= heure_debut_nuit and t < heure_fin_nuit %}
+        {% endif %}
+        {{ (temp_cible_nuit | float) if is_nuit else (temp_cible | float) }}
+  - variables:
       temps_restant: >
         {% set r = states(capteur_der) | float(0) %}
         {% set t = temp_min_int | float(0) %}
-        {% if r < 0 and t > temp_cible %}
-          {{ ((t - temp_cible) / (-r) * 60) | round(0) | int }}
+        {% if r < 0 and t > temp_cible_eff %}
+          {{ ((t - temp_cible_eff) / (-r) * 60) | round(0) | int }}
         {% else %}
           0
         {% endif %}
@@ -181,16 +234,16 @@ action:
       message: >
         {% set t = temp_min_int | float(0) %}
         {% if langue == 'fr' %}
-          {% if t <= temp_cible %}
-            Il fait {{ temp_min_int }}° dedans. Vous êtes passé sous {{ temp_cible }}° et ça continue de refroidir à {{ rate }}°/h. Il est temps d'allumer la cheminée.
+          {% if t <= temp_cible_eff %}
+            Il fait {{ temp_min_int }}° dedans. Vous êtes passé sous {{ temp_cible_eff }}° et ça continue de refroidir à {{ rate }}°/h. Il est temps d'allumer la cheminée.
           {% else %}
-            Il fait {{ temp_min_int }}° dedans. Ça refroidit à {{ rate }}°/h, soit encore {{ temps_restant }} min avant {{ temp_cible }}°. Allumez maintenant pour anticiper les {{ chauffe_min }} min de chauffe.
+            Il fait {{ temp_min_int }}° dedans. Ça refroidit à {{ rate }}°/h, soit encore {{ temps_restant }} min avant {{ temp_cible_eff }}°. Allumez maintenant pour anticiper les {{ chauffe_min }} min de chauffe.
           {% endif %}
         {% else %}
-          {% if t <= temp_cible %}
-            Indoor temperature is {{ temp_min_int }}°. You've dropped below {{ temp_cible }}° and it's still cooling at {{ rate }}°/h. Time to light the fireplace.
+          {% if t <= temp_cible_eff %}
+            Indoor temperature is {{ temp_min_int }}°. You've dropped below {{ temp_cible_eff }}° and it's still cooling at {{ rate }}°/h. Time to light the fireplace.
           {% else %}
-            Indoor temperature is {{ temp_min_int }}°. Dropping at {{ rate }}°/h, about {{ temps_restant }} min before reaching {{ temp_cible }}°. Light it now to account for the {{ chauffe_min }} min warm-up.
+            Indoor temperature is {{ temp_min_int }}°. Dropping at {{ rate }}°/h, about {{ temps_restant }} min before reaching {{ temp_cible_eff }}°. Light it now to account for the {{ chauffe_min }} min warm-up.
           {% endif %}
         {% endif %}
   - repeat:
@@ -238,11 +291,20 @@ action:
               {{ vals | max | round(1) if vals | length > 0 else '?' }}
             rate: "{{ states(capteur_der) | float(0) | round(2) }}"
         - variables:
+            temp_cible_eff: >
+              {% set t = now().strftime('%H:%M:%S') %}
+              {% if heure_debut_nuit > heure_fin_nuit %}
+                {% set is_nuit = t >= heure_debut_nuit or t < heure_fin_nuit %}
+              {% else %}
+                {% set is_nuit = t >= heure_debut_nuit and t < heure_fin_nuit %}
+              {% endif %}
+              {{ (temp_cible_nuit | float) if is_nuit else (temp_cible | float) }}
+        - variables:
             temps_restant: >
               {% set r = states(capteur_der) | float(0) %}
               {% set t = temp_min_int | float(0) %}
-              {% if r < 0 and t > temp_cible %}
-                {{ ((t - temp_cible) / (-r) * 60) | round(0) | int }}
+              {% if r < 0 and t > temp_cible_eff %}
+                {{ ((t - temp_cible_eff) / (-r) * 60) | round(0) | int }}
               {% else %}
                 0
               {% endif %}
@@ -251,16 +313,16 @@ action:
             message: >
               {% set t = temp_min_int | float(0) %}
               {% if langue == 'fr' %}
-                {% if t <= temp_cible %}
-                  Il fait {{ temp_min_int }}° dedans. Vous êtes passé sous {{ temp_cible }}° et ça continue de refroidir à {{ rate }}°/h. Il est temps d'allumer la cheminée.
+                {% if t <= temp_cible_eff %}
+                  Il fait {{ temp_min_int }}° dedans. Vous êtes passé sous {{ temp_cible_eff }}° et ça continue de refroidir à {{ rate }}°/h. Il est temps d'allumer la cheminée.
                 {% else %}
-                  Il fait {{ temp_min_int }}° dedans. Ça refroidit à {{ rate }}°/h, soit encore {{ temps_restant }} min avant {{ temp_cible }}°. Allumez maintenant pour anticiper les {{ chauffe_min }} min de chauffe.
+                  Il fait {{ temp_min_int }}° dedans. Ça refroidit à {{ rate }}°/h, soit encore {{ temps_restant }} min avant {{ temp_cible_eff }}°. Allumez maintenant pour anticiper les {{ chauffe_min }} min de chauffe.
                 {% endif %}
               {% else %}
-                {% if t <= temp_cible %}
-                  Indoor temperature is {{ temp_min_int }}°. You've dropped below {{ temp_cible }}° and it's still cooling at {{ rate }}°/h. Time to light the fireplace.
+                {% if t <= temp_cible_eff %}
+                  Indoor temperature is {{ temp_min_int }}°. You've dropped below {{ temp_cible_eff }}° and it's still cooling at {{ rate }}°/h. Time to light the fireplace.
                 {% else %}
-                  Indoor temperature is {{ temp_min_int }}°. Dropping at {{ rate }}°/h, about {{ temps_restant }} min before reaching {{ temp_cible }}°. Light it now to account for the {{ chauffe_min }} min warm-up.
+                  Indoor temperature is {{ temp_min_int }}°. Dropping at {{ rate }}°/h, about {{ temps_restant }} min before reaching {{ temp_cible_eff }}°. Light it now to account for the {{ chauffe_min }} min warm-up.
                 {% endif %}
               {% endif %}
         - repeat:
