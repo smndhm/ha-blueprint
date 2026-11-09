@@ -273,7 +273,7 @@ action:
                 action: CHEMINEE_RAPPEL
           timeout:
             hours: 4
-          continue_on_timeout: false
+          continue_on_timeout: true
         - if:
             - condition: template
               value_template: >
