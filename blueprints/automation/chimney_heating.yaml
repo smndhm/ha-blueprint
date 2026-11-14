@@ -172,8 +172,12 @@ trigger:
       {% if temps_int | length > 0 and temps_ext | length > 0 and rate is not none %}
         {% set temp_min_int = temps_int | min %}
         {% set temp_max_ext = temps_ext | max %}
-        {% if temp_max_ext < seuil_ext and temp_min_int > confort and rate < 0 %}
-          {{ (temp_min_int - confort) / (-rate) <= warmup_h }}
+        {% if temp_max_ext < seuil_ext and rate < 0 %}
+          {% if temp_min_int <= confort %}
+            true
+          {% else %}
+            {{ (temp_min_int - confort) / (-rate) <= warmup_h }}
+          {% endif %}
         {% else %}
           false
         {% endif %}
