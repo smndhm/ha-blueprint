@@ -239,13 +239,13 @@ action:
         {% set t = temp_min_int | float(0) %}
         {% if langue == 'fr' %}
           {% if t <= temp_cible_eff %}
-            Il fait {{ temp_min_int }}° dedans. Vous êtes passé sous {{ temp_cible_eff }}° et ça continue de refroidir à {{ rate }}°/h. Il est temps d'allumer la cheminée.
+            Il fait {{ temp_min_int }}° dedans, en dessous de {{ temp_cible_eff }}°. Il est temps d'allumer la cheminée.
           {% else %}
             Il fait {{ temp_min_int }}° dedans. Ça refroidit à {{ rate }}°/h, soit encore {{ temps_restant }} min avant {{ temp_cible_eff }}°. Allumez maintenant pour anticiper les {{ chauffe_min }} min de chauffe.
           {% endif %}
         {% else %}
           {% if t <= temp_cible_eff %}
-            Indoor temperature is {{ temp_min_int }}°. You've dropped below {{ temp_cible_eff }}° and it's still cooling at {{ rate }}°/h. Time to light the fireplace.
+            Indoor temperature is {{ temp_min_int }}°, below {{ temp_cible_eff }}°. Time to light the fireplace.
           {% else %}
             Indoor temperature is {{ temp_min_int }}°. Dropping at {{ rate }}°/h, about {{ temps_restant }} min before reaching {{ temp_cible_eff }}°. Light it now to account for the {{ chauffe_min }} min warm-up.
           {% endif %}
@@ -318,13 +318,13 @@ action:
               {% set t = temp_min_int | float(0) %}
               {% if langue == 'fr' %}
                 {% if t <= temp_cible_eff %}
-                  Il fait {{ temp_min_int }}° dedans. Vous êtes passé sous {{ temp_cible_eff }}° et ça continue de refroidir à {{ rate }}°/h. Il est temps d'allumer la cheminée.
+                  Il fait {{ temp_min_int }}° dedans, en dessous de {{ temp_cible_eff }}°. Il est temps d'allumer la cheminée.
                 {% else %}
                   Il fait {{ temp_min_int }}° dedans. Ça refroidit à {{ rate }}°/h, soit encore {{ temps_restant }} min avant {{ temp_cible_eff }}°. Allumez maintenant pour anticiper les {{ chauffe_min }} min de chauffe.
                 {% endif %}
               {% else %}
                 {% if t <= temp_cible_eff %}
-                  Indoor temperature is {{ temp_min_int }}°. You've dropped below {{ temp_cible_eff }}° and it's still cooling at {{ rate }}°/h. Time to light the fireplace.
+                  Indoor temperature is {{ temp_min_int }}°, below {{ temp_cible_eff }}°. Time to light the fireplace.
                 {% else %}
                   Indoor temperature is {{ temp_min_int }}°. Dropping at {{ rate }}°/h, about {{ temps_restant }} min before reaching {{ temp_cible_eff }}°. Light it now to account for the {{ chauffe_min }} min warm-up.
                 {% endif %}
