@@ -1,0 +1,138 @@
+blueprint:
+  name: "Alerte Gel / Frost Warning"
+  description: >
+    Vérifie chaque jour les prévisions météo et envoie une notification
+    si la température minimale prévue passe sous le seuil configuré.
+    Utile pour rentrer le tuyau d'arrosage ou protéger les plantes.
+
+    Checks weather forecasts daily and sends a notification if the
+    forecast minimum temperature drops below the configured threshold.
+    Useful for bringing in the garden hose or protecting plants.
+  domain: automation
+  input:
+    entite_meteo:
+      name: Entité météo / Weather entity
+      description: >
+        Entité météo HA fournissant des prévisions journalières avec templow.
+        HA weather entity providing daily forecasts with templow.
+      selector:
+        entity:
+          domain: weather
+    devices_notification:
+      name: Appareils à notifier / Devices to notify
+      selector:
+        device:
+          integration: mobile_app
+          multiple: true
+    seuil_gel:
+      name: Seuil d'alerte / Alert threshold
+      description: >
+        Alerte si le minimum prévu est inférieur à cette valeur.
+        Défaut 2°C pour anticiper légèrement le gel réel.
+
+        Alert if the forecast low is below this value.
+        Default 2°C to give a small margin above actual freezing.
+      default: 2
+      selector:
+        number:
+          min: -10
+          max: 10
+    jours_avance:
+      name: Horizon de prévision / Forecast horizon (days)
+      description: >
+        Nombre de jours à vérifier (1 = seulement demain, 2 = J+1 et J+2, etc.)
+
+        Number of days to check (1 = tomorrow only, 2 = next 2 days, etc.)
+      default: 2
+      selector:
+        number:
+          min: 1
+          max: 5
+    heure_verification:
+      name: Heure de vérification / Check time
+      description: >
+        Heure quotidienne à laquelle vérifier les prévisions.
+
+        Daily time at which forecasts are checked.
+      default: "18:00:00"
+      selector:
+        time: {}
+    langue:
+      name: Langue / Language
+      default: "fr"
+      selector:
+        select:
+          options:
+            - label: Français
+              value: "fr"
+            - label: English
+              value: "en"
+
+trigger:
+  - platform: time
+    at: !input heure_verification
+
+action:
+  - variables:
+      entite_meteo: !input entite_meteo
+      langue: !input langue
+      devices_raw: !input devices_notification
+      seuil: !input seuil_gel
+      jours: !input jours_avance
+  - variables:
+      devices_list: "{{ devices_raw if devices_raw is list else [devices_raw] }}"
+      device_ids: "{{ devices_list | select('string') | unique | list }}"
+  - service: weather.get_forecasts
+    target:
+      entity_id: "{{ entite_meteo }}"
+    data:
+      type: daily
+    response_variable: forecast_data
+  - variables:
+      forecasts: "{{ forecast_data[entite_meteo]['forecast'][:jours] }}"
+      gel_entries: >
+        {% set ns = namespace(entries=[]) %}
+        {% for f in forecasts %}
+          {% set low = f.templow if 'templow' in f else f.temperature %}
+          {% if low < seuil %}
+            {% set ns.entries = ns.entries + [{'date': f.datetime[:10], 'low': low}] %}
+          {% endif %}
+        {% endfor %}
+        {{ ns.entries }}
+  - condition: template
+    value_template: "{{ gel_entries | length > 0 }}"
+  - variables:
+      first_gel: "{{ gel_entries[0] }}"
+      date_gel: >
+        {% set d = first_gel.date %}
+        {% set demain = (now() + timedelta(days=1)).strftime('%Y-%m-%d') %}
+        {% set apres = (now() + timedelta(days=2)).strftime('%Y-%m-%d') %}
+        {% if langue == 'fr' %}
+          {% if d == now().strftime('%Y-%m-%d') %}cette nuit
+          {% elif d == demain %}demain
+          {% elif d == apres %}après-demain
+          {% else %}le {{ d }}
+          {% endif %}
+        {% else %}
+          {% if d == now().strftime('%Y-%m-%d') %}tonight
+          {% elif d == demain %}tomorrow
+          {% elif d == apres %}in 2 days
+          {% else %}on {{ d }}
+          {% endif %}
+        {% endif %}
+      titre: >
+        {% if langue == 'fr' %}🥶 Risque de gel{% else %}🥶 Frost risk{% endif %}
+      message: >
+        {% set t = first_gel.low %}
+        {% if langue == 'fr' %}
+          Minimum prévu de {{ t }}° {{ date_gel }}. Pensez à rentrer le tuyau d'arrosage.
+        {% else %}
+          Forecast low of {{ t }}° {{ date_gel }}. Remember to bring in the garden hose.
+        {% endif %}
+  - repeat:
+      for_each: "{{ device_ids }}"
+      sequence:
+        - service: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+          data:
+            title: "{{ titre }}"
+            message: "{{ message }}"
